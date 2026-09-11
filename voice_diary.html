@@ -47,6 +47,18 @@
 const CLIENT_ID = '601356272619-t96fpja50tpa1v0br6c1igae4uvi9ks0.apps.googleusercontent.com';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 
+// 日付キーの固定化 (YYYY-MM-DD 形式) - Drive保存・端末保存の両方で使う
+const now = new Date();
+const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+const diaryArea = document.getElementById('diaryArea');
+
+// ページ読み込み時に今日の日記を復元
+const savedDiary = localStorage.getItem(`diary_${todayKey}`);
+if (savedDiary) {
+    diaryArea.value = savedDiary;
+}
+
 let accessToken = null;
 let tokenClient = null;
 
@@ -170,21 +182,10 @@ if (!SpeechRecognition) {
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const status = document.getElementById('status');
-    const diaryArea = document.getElementById('diaryArea');
     const saveBtn = document.getElementById('saveBtn');
 
     let finalTranscript = '';
     let isRecognizing = false;
-
-    // 日付キーの固定化 (YYYY-MM-DD 形式)
-    const now = new Date();
-    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-
-    // ページ読み込み時に今日の日記を復元
-    const savedDiary = localStorage.getItem(`diary_${todayKey}`);
-    if (savedDiary) {
-        diaryArea.value = savedDiary;
-    }
 
     recognition.onresult = (event) => {
         let interimTranscript = '';
