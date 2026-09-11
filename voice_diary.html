@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>音声入力日記 (強化版)</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 500px; margin: 0 auto; }
+        button { font-size: 1rem; padding: 10px 20px; margin-right: 10px; margin-bottom: 8px; cursor: pointer; }
+        textarea { width: 100%; height: 250px; margin-top: 15px; font-size: 1rem; box-sizing: border-box; padding: 10px; }
+        .status { margin-top: 10px; color: #666; font-size: 0.9rem; font-weight: bold; }
+        .drive-status { margin-top: 6px; color: #1a73e8; font-size: 0.85rem; min-height: 1.2em; }
+        .row { margin-top: 10px; }
+        #driveSaveBtn { background: #1a73e8; color: white; border: none; border-radius: 4px; }
+        #driveSaveBtn:disabled { background: #a9c6f2; }
+    </style>
+</head>
+<body>
+
+    <h2>音声入力日記</h2>
+    <div>
+        <button id="startBtn">録音開始</button>
+        <button id="stopBtn" disabled>停止</button>
+    </div>
+    <p id="status" class="status">ボタンを押して話し始めてください</p>
+    
+    <textarea id="diaryArea" placeholder="ここに日記が入力されます..."></textarea>
+    <br>
+    <div class="row">
+        <button id="saveBtn">端末に保存</button>
+        <button id="driveSignInBtn">Googleドライブに接続</button>
+        <button id="driveSaveBtn" disabled>ドライブに保存</button>
+    </div>
+    <p id="driveStatus" class="drive-status"></p>
+
+<script>
+/* =========================================================
+   Googleドライブ連携の設定
+   1. https://console.cloud.google.com/ でプロジェクトを作成
+   2. 「APIとサービス」→「有効なAPI」から "Google Drive API" を有効化
+   3. 「認証情報」→「OAuth クライアント ID」を作成（種類: ウェブアプリケーション）
+   4. 「承認済みの JavaScript 生成元」にこのHTMLを配置するURLを登録
+      （例: http://localhost:8000 や https://あなたのドメイン）
+   5. 発行された クライアントID を下の CLIENT_ID に貼り付ける
+   ========================================================= */
+const CLIENT_ID = '601356272619-t96fpja50tpa1v0br6c1igae4uvi9ks0.apps.googleusercontent.com';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+
+let accessToken = null;
+let tokenClient = null;
+
+const driveSignInBtn = document.getElementById('driveSignInBtn');
+const driveSaveBtn = document.getElementById('driveSaveBtn');
+const driveStatus = document.getElementById('driveStatus');
+
+function initGoogleAuth() {
+    if (typeof google === 'undefined' || !google.accounts) {
+        // GISスクリプトの読み込みを待って再試行
+        setTimeout(initGoogleAuth, 300);
+        return;
+    }
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: DRIVE_SCOPE,
+        callback: (tokenResponse) => {
+            if (tokenResponse && tokenResponse.access_token) {
+                accessToken = tokenResponse.access_token;
+                driveSaveBtn.disabled = false;
+                driveStatus.textContent = 'Googleドライブに接続しました。';
+            } else {
+                driveStatus.textContent = '接続に失敗しました。もう一度お試しください。';
+            }
+        },
+    });
+}
+initGoogleAuth();
+
+driveSignInBtn.addEventListener('click', () => {
+    if (CLIENT_ID.startsWith('YOUR_CLIENT_ID')) {
+        alert('先にコード内の CLIENT_ID をご自身のGoogle OAuthクライアントIDに置き換えてください。');
+        return;
+    }
+    if (!tokenClient) {
+        driveStatus.textContent = 'Google認証の準備中です。少し待ってから再度お試しください。';
+        return;
+    }
+    tokenClient.requestAccessToken();
+});
+
+// その日の日記ファイルをappDataFolder内で検索する
+async function findTodayFile(fileName) {
+    const query = encodeURIComponent(`name='${fileName}' and trashed=false`);
+    const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${query}&spaces=appDataFolder&fields=files(id,name)`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!res.ok) throw new Error(`検索に失敗しました (${res.status})`);
+    const data = await res.json();
+    return data.files && data.files.length > 0 ? data.files[0].id : null;
+}
+
+// 新規作成 or 上書き更新
+async function saveToDrive(fileName, content) {
+    const existingId = await findTodayFile(fileName);
+    const metadata = existingId
+        ? { name: fileName }
+        : { name: fileName, parents: ['appDataFolder'] };
+
+    const boundary = 'diary_boundary_' + Date.now();
+    const body =
+        `--${boundary}\r\n` +
+        `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+        `${JSON.stringify(metadata)}\r\n` +
+        `--${boundary}\r\n` +
+        `Content-Type: text/plain; charset=UTF-8\r\n\r\n` +
+        `${content}\r\n` +
+        `--${boundary}--`;
+
+    const url = existingId
+        ? `https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=multipart`
+        : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+
+    const res = await fetch(url, {
+        method: existingId ? 'PATCH' : 'POST',
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body,
+    });
+
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`保存に失敗しました (${res.status}): ${errText}`);
+    }
+    return res.json();
+}
+
+driveSaveBtn.addEventListener('click', async () => {
+    if (!accessToken) {
+        driveStatus.textContent = '先にGoogleドライブに接続してください。';
+        return;
+    }
+    driveSaveBtn.disabled = true;
+    driveStatus.textContent = '保存中...';
+    try {
+        const fileName = `diary_${todayKey}.txt`;
+        await saveToDrive(fileName, diaryArea.value);
+        driveStatus.textContent = `Googleドライブに保存しました（${fileName}）。`;
+    } catch (err) {
+        console.error(err);
+        driveStatus.textContent = 'エラー: ' + err.message;
+    } finally {
+        driveSaveBtn.disabled = false;
+    }
+});
+/* ========================= ここまでGoogleドライブ連携 ========================= */
+
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+if (!SpeechRecognition) {
+    alert("お使いのブラウザは音声認識に対応していません。AndroidのChromeやPCのChrome/Edgeでお試しください。");
+} else {
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'ja-JP';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const status = document.getElementById('status');
+    const diaryArea = document.getElementById('diaryArea');
+    const saveBtn = document.getElementById('saveBtn');
+
+    let finalTranscript = '';
+    let isRecognizing = false;
+
+    // 日付キーの固定化 (YYYY-MM-DD 形式)
+    const now = new Date();
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    // ページ読み込み時に今日の日記を復元
+    const savedDiary = localStorage.getItem(`diary_${todayKey}`);
+    if (savedDiary) {
+        diaryArea.value = savedDiary;
+    }
+
+    recognition.onresult = (event) => {
+        let interimTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+                // 確定したテキストの末尾に句点をつける
+                finalTranscript += transcript + '。';
+            } else {
+                interimTranscript += transcript;
+            }
+        }
+        diaryArea.value = finalTranscript + interimTranscript;
+    };
+
+    // 自動再開の安全性向上
+    recognition.onend = () => {
+        if (isRecognizing) {
+            try {
+                recognition.start();
+            } catch (e) {
+                console.log("再起動をスキップ（すでに動作中など）:", e.message);
+            }
+        }
+    };
+
+    startBtn.addEventListener('click', () => {
+        // 現在のテキストエリアの内容をベースにする
+        finalTranscript = diaryArea.value;
+        
+        // 末尾が句点以外で終わっている場合は調整（手動入力への対応）
+        if (finalTranscript.length > 0 && !finalTranscript.endsWith('。') && !finalTranscript.endsWith('\n')) {
+            finalTranscript += '。';
+        }
+
+        isRecognizing = true;
+        recognition.start();
+        
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        status.textContent = "🔴 音声認識中... 続けて話してください";
+        status.style.color = "red";
+    });
+
+    stopBtn.addEventListener('click', () => {
+        isRecognizing = false;
+        recognition.stop();
+        
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        status.textContent = "停止しました";
+        status.style.color = "#666";
+    });
+
+    recognition.onerror = (event) => {
+        console.error("Speech recognition error", event.error);
+        if (event.error === 'not-allowed') {
+            status.textContent = "エラー: マイクの使用が許可されていません";
+            isRecognizing = false;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        }
+        // 音声未検知(no-speech)などのエラーでも自動復帰できるようにする
+    };
+
+    saveBtn.addEventListener('click', () => {
+        localStorage.setItem(`diary_${todayKey}`, diaryArea.value);
+        alert(`本日（${todayKey}）の日記を保存しました！`);
+    });
+}
+</script>
+</body>
+</html>
