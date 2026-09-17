@@ -3,72 +3,152 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>音声入力日記 (強化版)</title>
+    <title>音声入力日記</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; max-width: 500px; margin: 0 auto; }
-        button { font-size: 1rem; padding: 10px 20px; margin-right: 10px; margin-bottom: 8px; cursor: pointer; }
-        textarea { width: 100%; height: 250px; margin-top: 15px; font-size: 1rem; box-sizing: border-box; padding: 10px; }
+        body { font-family: sans-serif; padding: 20px; max-width: 520px; margin: 0 auto; color: #222; }
+        button { font-size: 1rem; padding: 10px 18px; margin-right: 8px; margin-bottom: 8px; cursor: pointer; border-radius: 4px; border: 1px solid #ccc; background: #f7f7f7; }
+        button:hover:not(:disabled) { background: #eee; }
+        button:disabled { opacity: 0.5; cursor: default; }
+        textarea { width: 100%; height: 230px; margin-top: 15px; font-size: 1rem; box-sizing: border-box; padding: 10px; }
         .status { margin-top: 10px; color: #666; font-size: 0.9rem; font-weight: bold; }
         .drive-status { margin-top: 6px; color: #1a73e8; font-size: 0.85rem; min-height: 1.2em; }
         .row { margin-top: 10px; }
-        #driveSaveBtn { background: #1a73e8; color: white; border: none; border-radius: 4px; }
-        #driveSaveBtn:disabled { background: #a9c6f2; }
+        #driveSaveBtn { background: #1a73e8; color: white; border: none; }
+        #driveSaveBtn:disabled { background: #a9c6f2; color: white; }
+
+        /* タブ */
+        .tabs { display: flex; gap: 0; border-bottom: 2px solid #ddd; margin-bottom: 16px; }
+        .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; border: none; background: none;
+               margin: 0; border-radius: 0; font-size: 1rem; color: #666; }
+        .tab.active { color: #1a73e8; font-weight: bold; box-shadow: inset 0 -3px 0 #1a73e8; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+
+        /* カレンダー */
+        .cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+        .cal-title { font-size: 1.1rem; font-weight: bold; }
+        .cal-nav { padding: 6px 14px; margin: 0; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .cal-dow { text-align: center; font-size: 0.8rem; color: #888; padding: 4px 0; }
+        .cal-dow.sun { color: #d93025; }
+        .cal-dow.sat { color: #1a73e8; }
+        .cal-cell { aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+                    border: 1px solid #eee; border-radius: 6px; font-size: 0.9rem; background: #fff; cursor: default; }
+        .cal-cell.empty { border: none; background: none; }
+        .cal-cell.has-entry { background: #e8f0fe; border-color: #1a73e8; cursor: pointer; font-weight: bold; color: #1a73e8; }
+        .cal-cell.has-entry:hover { background: #d2e3fc; }
+        .cal-cell.today { outline: 2px solid #f9ab00; outline-offset: -2px; }
+        .cal-cell.selected { background: #1a73e8; color: #fff; }
+        .dot { width: 5px; height: 5px; border-radius: 50%; background: #1a73e8; margin-top: 3px; }
+        .cal-cell.selected .dot { background: #fff; }
+
+        .viewer { margin-top: 20px; }
+        .viewer h3 { margin: 0 0 8px; font-size: 1rem; }
+        .viewer-body { border: 1px solid #ddd; border-radius: 6px; padding: 12px; min-height: 120px;
+                       white-space: pre-wrap; line-height: 1.7; background: #fafafa; font-size: 0.95rem; }
+        .muted { color: #888; font-size: 0.9rem; }
+        .legend { font-size: 0.8rem; color: #888; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <h2>音声入力日記</h2>
+<h2>音声入力日記</h2>
+
+<div class="tabs">
+    <button class="tab active" id="tabWrite">書く</button>
+    <button class="tab" id="tabCalendar">カレンダー</button>
+</div>
+
+<!-- ========== 書くパネル ========== -->
+<div class="panel active" id="panelWrite">
     <div>
         <button id="startBtn">録音開始</button>
         <button id="stopBtn" disabled>停止</button>
     </div>
     <p id="status" class="status">ボタンを押して話し始めてください</p>
-    
+
     <textarea id="diaryArea" placeholder="ここに日記が入力されます..."></textarea>
-    <br>
+
     <div class="row">
         <button id="saveBtn">端末に保存</button>
         <button id="driveSignInBtn">Googleドライブに接続</button>
         <button id="driveSaveBtn" disabled>ドライブに保存</button>
     </div>
     <p id="driveStatus" class="drive-status"></p>
+</div>
+
+<!-- ========== カレンダーパネル ========== -->
+<div class="panel" id="panelCalendar">
+    <div class="cal-header">
+        <button class="cal-nav" id="prevMonth">◀</button>
+        <span class="cal-title" id="calTitle"></span>
+        <button class="cal-nav" id="nextMonth">▶</button>
+    </div>
+    <div class="cal-grid" id="calDow"></div>
+    <div class="cal-grid" id="calGrid"></div>
+    <p class="legend">青い日付が日記のある日です。クリックすると内容が表示されます。</p>
+    <div class="row">
+        <button id="refreshDriveBtn">ドライブから読み込む</button>
+    </div>
+    <p id="calStatus" class="drive-status"></p>
+
+    <div class="viewer">
+        <h3 id="viewerTitle">日付を選んでください</h3>
+        <div class="viewer-body" id="viewerBody"><span class="muted">カレンダーの日付をクリックすると、その日の日記が表示されます。</span></div>
+    </div>
+</div>
 
 <script>
 /* =========================================================
-   Googleドライブ連携の設定
-   1. https://console.cloud.google.com/ でプロジェクトを作成
-   2. 「APIとサービス」→「有効なAPI」から "Google Drive API" を有効化
-   3. 「認証情報」→「OAuth クライアント ID」を作成（種類: ウェブアプリケーション）
-   4. 「承認済みの JavaScript 生成元」にこのHTMLを配置するURLを登録
-      （例: http://localhost:8000 や https://あなたのドメイン）
-   5. 発行された クライアントID を下の CLIENT_ID に貼り付ける
+   設定
    ========================================================= */
 const CLIENT_ID = '601356272619-t96fpja50tpa1v0br6c1igae4uvi9ks0.apps.googleusercontent.com';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 
-// 日付キーの固定化 (YYYY-MM-DD 形式) - Drive保存・端末保存の両方で使う
-const now = new Date();
-const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+/* ---------- 共通 ---------- */
+function toKey(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+const todayKey = toKey(new Date());
 
 const diaryArea = document.getElementById('diaryArea');
+const driveStatus = document.getElementById('driveStatus');
+const calStatus = document.getElementById('calStatus');
 
 // ページ読み込み時に今日の日記を復元
 const savedDiary = localStorage.getItem(`diary_${todayKey}`);
-if (savedDiary) {
-    diaryArea.value = savedDiary;
+if (savedDiary) diaryArea.value = savedDiary;
+
+/* ---------- タブ切り替え ---------- */
+const tabWrite = document.getElementById('tabWrite');
+const tabCalendar = document.getElementById('tabCalendar');
+const panelWrite = document.getElementById('panelWrite');
+const panelCalendar = document.getElementById('panelCalendar');
+
+tabWrite.addEventListener('click', () => switchTab('write'));
+tabCalendar.addEventListener('click', () => switchTab('calendar'));
+
+function switchTab(which) {
+    const isWrite = which === 'write';
+    tabWrite.classList.toggle('active', isWrite);
+    tabCalendar.classList.toggle('active', !isWrite);
+    panelWrite.classList.toggle('active', isWrite);
+    panelCalendar.classList.toggle('active', !isWrite);
+    if (!isWrite) renderCalendar();
 }
 
+/* =========================================================
+   Googleドライブ連携
+   ========================================================= */
 let accessToken = null;
 let tokenClient = null;
 
 const driveSignInBtn = document.getElementById('driveSignInBtn');
 const driveSaveBtn = document.getElementById('driveSaveBtn');
-const driveStatus = document.getElementById('driveStatus');
 
 function initGoogleAuth() {
     if (typeof google === 'undefined' || !google.accounts) {
-        // GISスクリプトの読み込みを待って再試行
         setTimeout(initGoogleAuth, 300);
         return;
     }
@@ -89,10 +169,6 @@ function initGoogleAuth() {
 initGoogleAuth();
 
 driveSignInBtn.addEventListener('click', () => {
-    if (CLIENT_ID.startsWith('YOUR_CLIENT_ID')) {
-        alert('先にコード内の CLIENT_ID をご自身のGoogle OAuthクライアントIDに置き換えてください。');
-        return;
-    }
     if (!tokenClient) {
         driveStatus.textContent = 'Google認証の準備中です。少し待ってから再度お試しください。';
         return;
@@ -100,8 +176,8 @@ driveSignInBtn.addEventListener('click', () => {
     tokenClient.requestAccessToken();
 });
 
-// その日の日記ファイルをappDataFolder内で検索する
-async function findTodayFile(fileName) {
+// 指定ファイル名をappDataFolder内で検索してIDを返す
+async function findFileId(fileName) {
     const query = encodeURIComponent(`name='${fileName}' and trashed=false`);
     const res = await fetch(
         `https://www.googleapis.com/drive/v3/files?q=${query}&spaces=appDataFolder&fields=files(id,name)`,
@@ -114,10 +190,8 @@ async function findTodayFile(fileName) {
 
 // 新規作成 or 上書き更新
 async function saveToDrive(fileName, content) {
-    const existingId = await findTodayFile(fileName);
-    const metadata = existingId
-        ? { name: fileName }
-        : { name: fileName, parents: ['appDataFolder'] };
+    const existingId = await findFileId(fileName);
+    const metadata = existingId ? { name: fileName } : { name: fileName, parents: ['appDataFolder'] };
 
     const boundary = 'diary_boundary_' + Date.now();
     const body =
@@ -141,12 +215,37 @@ async function saveToDrive(fileName, content) {
         },
         body,
     });
-
-    if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`保存に失敗しました (${res.status}): ${errText}`);
-    }
+    if (!res.ok) throw new Error(`保存に失敗しました (${res.status})`);
     return res.json();
+}
+
+// appDataFolder内の日記ファイルを全件取得（ページング対応）
+async function listDriveDiaries() {
+    let pageToken = null;
+    const map = {}; // dateKey -> fileId
+    do {
+        let url = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder`
+                + `&fields=nextPageToken,files(id,name)&pageSize=200`;
+        if (pageToken) url += `&pageToken=${pageToken}`;
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!res.ok) throw new Error(`一覧取得に失敗しました (${res.status})`);
+        const data = await res.json();
+        (data.files || []).forEach(f => {
+            const m = f.name.match(/^diary_(\d{4}-\d{2}-\d{2})\.txt$/);
+            if (m) map[m[1]] = f.id;
+        });
+        pageToken = data.nextPageToken;
+    } while (pageToken);
+    return map;
+}
+
+// ファイル本文を取得
+async function fetchDriveContent(fileId) {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!res.ok) throw new Error(`本文の取得に失敗しました (${res.status})`);
+    return res.text();
 }
 
 driveSaveBtn.addEventListener('click', async () => {
@@ -160,6 +259,7 @@ driveSaveBtn.addEventListener('click', async () => {
         const fileName = `diary_${todayKey}.txt`;
         await saveToDrive(fileName, diaryArea.value);
         driveStatus.textContent = `Googleドライブに保存しました（${fileName}）。`;
+        driveFileMap[todayKey] = driveFileMap[todayKey] || 'pending';
     } catch (err) {
         console.error(err);
         driveStatus.textContent = 'エラー: ' + err.message;
@@ -167,8 +267,131 @@ driveSaveBtn.addEventListener('click', async () => {
         driveSaveBtn.disabled = false;
     }
 });
-/* ========================= ここまでGoogleドライブ連携 ========================= */
 
+/* =========================================================
+   カレンダー
+   ========================================================= */
+let driveFileMap = {};              // dateKey -> fileId（ドライブ側）
+let viewYear, viewMonth;            // 表示中の年・月
+let selectedKey = null;
+
+(function initCalendarMonth() {
+    const d = new Date();
+    viewYear = d.getFullYear();
+    viewMonth = d.getMonth();
+})();
+
+// 曜日ヘッダ
+(function renderDow() {
+    const names = ['日', '月', '火', '水', '木', '金', '土'];
+    const wrap = document.getElementById('calDow');
+    wrap.innerHTML = names.map((n, i) =>
+        `<div class="cal-dow ${i === 0 ? 'sun' : ''}${i === 6 ? 'sat' : ''}">${n}</div>`
+    ).join('');
+})();
+
+// ローカルに保存されている日記の日付一覧
+function localDiaryKeys() {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        const m = k && k.match(/^diary_(\d{4}-\d{2}-\d{2})$/);
+        if (m && (localStorage.getItem(k) || '').trim() !== '') keys.push(m[1]);
+    }
+    return keys;
+}
+
+function hasEntry(key) {
+    return localDiaryKeys().includes(key) || Object.prototype.hasOwnProperty.call(driveFileMap, key);
+}
+
+function renderCalendar() {
+    document.getElementById('calTitle').textContent = `${viewYear}年 ${viewMonth + 1}月`;
+
+    const first = new Date(viewYear, viewMonth, 1);
+    const startDow = first.getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+    const cells = [];
+    for (let i = 0; i < startDow; i++) cells.push('<div class="cal-cell empty"></div>');
+
+    for (let day = 1; day <= daysInMonth; day++) {
+        const key = toKey(new Date(viewYear, viewMonth, day));
+        const classes = ['cal-cell'];
+        if (hasEntry(key)) classes.push('has-entry');
+        if (key === todayKey) classes.push('today');
+        if (key === selectedKey) classes.push('selected');
+        const dot = hasEntry(key) ? '<div class="dot"></div>' : '';
+        cells.push(`<div class="${classes.join(' ')}" data-key="${key}"><span>${day}</span>${dot}</div>`);
+    }
+
+    const grid = document.getElementById('calGrid');
+    grid.innerHTML = cells.join('');
+    grid.querySelectorAll('.cal-cell.has-entry').forEach(cell => {
+        cell.addEventListener('click', () => showEntry(cell.dataset.key));
+    });
+}
+
+document.getElementById('prevMonth').addEventListener('click', () => {
+    viewMonth--;
+    if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+    renderCalendar();
+});
+document.getElementById('nextMonth').addEventListener('click', () => {
+    viewMonth++;
+    if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+    renderCalendar();
+});
+
+async function showEntry(key) {
+    selectedKey = key;
+    renderCalendar();
+
+    const titleEl = document.getElementById('viewerTitle');
+    const bodyEl = document.getElementById('viewerBody');
+    titleEl.textContent = `${key} の日記`;
+
+    // まず端末内の内容を表示（即座に出せる）
+    const local = localStorage.getItem(`diary_${key}`);
+    if (local && local.trim() !== '') {
+        bodyEl.textContent = local;
+    } else {
+        bodyEl.innerHTML = '<span class="muted">読み込み中...</span>';
+    }
+
+    // ドライブ側にあれば、そちらの内容で上書き表示
+    const fileId = driveFileMap[key];
+    if (accessToken && fileId && fileId !== 'pending') {
+        try {
+            const text = await fetchDriveContent(fileId);
+            bodyEl.textContent = text;
+        } catch (err) {
+            if (!local) bodyEl.innerHTML = `<span class="muted">読み込みに失敗しました: ${err.message}</span>`;
+        }
+    } else if (!local || local.trim() === '') {
+        bodyEl.innerHTML = '<span class="muted">この日の日記が見つかりませんでした。</span>';
+    }
+}
+
+document.getElementById('refreshDriveBtn').addEventListener('click', async () => {
+    if (!accessToken) {
+        calStatus.textContent = '先に「書く」タブでGoogleドライブに接続してください。';
+        return;
+    }
+    calStatus.textContent = '読み込み中...';
+    try {
+        driveFileMap = await listDriveDiaries();
+        renderCalendar();
+        calStatus.textContent = `ドライブから ${Object.keys(driveFileMap).length} 件の日記を読み込みました。`;
+    } catch (err) {
+        console.error(err);
+        calStatus.textContent = 'エラー: ' + err.message;
+    }
+});
+
+/* =========================================================
+   音声認識
+   ========================================================= */
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 if (!SpeechRecognition) {
@@ -192,7 +415,6 @@ if (!SpeechRecognition) {
         for (let i = event.resultIndex; i < event.results.length; i++) {
             const transcript = event.results[i][0].transcript;
             if (event.results[i].isFinal) {
-                // 確定したテキストの末尾に句点をつける
                 finalTranscript += transcript + '。';
             } else {
                 interimTranscript += transcript;
@@ -201,29 +423,20 @@ if (!SpeechRecognition) {
         diaryArea.value = finalTranscript + interimTranscript;
     };
 
-    // 自動再開の安全性向上
     recognition.onend = () => {
         if (isRecognizing) {
-            try {
-                recognition.start();
-            } catch (e) {
-                console.log("再起動をスキップ（すでに動作中など）:", e.message);
-            }
+            try { recognition.start(); }
+            catch (e) { console.log("再起動をスキップ:", e.message); }
         }
     };
 
     startBtn.addEventListener('click', () => {
-        // 現在のテキストエリアの内容をベースにする
         finalTranscript = diaryArea.value;
-        
-        // 末尾が句点以外で終わっている場合は調整（手動入力への対応）
         if (finalTranscript.length > 0 && !finalTranscript.endsWith('。') && !finalTranscript.endsWith('\n')) {
             finalTranscript += '。';
         }
-
         isRecognizing = true;
         recognition.start();
-        
         startBtn.disabled = true;
         stopBtn.disabled = false;
         status.textContent = "🔴 音声認識中... 続けて話してください";
@@ -233,7 +446,6 @@ if (!SpeechRecognition) {
     stopBtn.addEventListener('click', () => {
         isRecognizing = false;
         recognition.stop();
-        
         startBtn.disabled = false;
         stopBtn.disabled = true;
         status.textContent = "停止しました";
@@ -248,7 +460,6 @@ if (!SpeechRecognition) {
             startBtn.disabled = false;
             stopBtn.disabled = true;
         }
-        // 音声未検知(no-speech)などのエラーでも自動復帰できるようにする
     };
 
     saveBtn.addEventListener('click', () => {
