@@ -1,6 +1,3 @@
-
-
-Voice diary · HTML
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -19,7 +16,7 @@ Voice diary · HTML
         .row { margin-top: 10px; }
         .primary-btn { background: #1a73e8; color: white; border: none; }
         .primary-btn:disabled { background: #a9c6f2; color: white; }
- 
+
         /* タブ */
         .tabs { display: flex; gap: 0; border-bottom: 2px solid #ddd; margin-bottom: 16px; }
         .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; border: none; background: none;
@@ -27,7 +24,7 @@ Voice diary · HTML
         .tab.active { color: #1a73e8; font-weight: bold; box-shadow: inset 0 -3px 0 #1a73e8; }
         .panel { display: none; }
         .panel.active { display: block; }
- 
+
         /* カレンダー */
         .cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
         .cal-title { font-size: 1.1rem; font-weight: bold; }
@@ -46,7 +43,12 @@ Voice diary · HTML
         .cal-cell.selected { background: #1a73e8; color: #fff; }
         .dot { width: 5px; height: 5px; border-radius: 50%; background: #1a73e8; margin-top: 3px; }
         .cal-cell.selected .dot { background: #fff; }
- 
+        .cal-cell.sun span.daynum, .cal-cell.holiday span.daynum { color: #d93025; }
+        .cal-cell.sat span.daynum { color: #1a73e8; }
+        .cal-cell.selected span.daynum { color: #fff; }
+        .cal-cell .holiday-mark { font-size: 0.55rem; color: #d93025; line-height: 1; margin-top: 1px; }
+        .cal-cell.selected .holiday-mark { color: #ffd6d2; }
+
         .editor { margin-top: 20px; }
         .editor h3 { margin: 0 0 8px; font-size: 1rem; }
         #calEditArea { height: 180px; margin-top: 8px; }
@@ -55,14 +57,14 @@ Voice diary · HTML
     </style>
 </head>
 <body>
- 
+
 <h2>音声入力日記</h2>
- 
+
 <div class="tabs">
     <button class="tab active" id="tabWrite">今日を書く</button>
     <button class="tab" id="tabCalendar">カレンダー</button>
 </div>
- 
+
 <!-- ========== 書くパネル（今日専用・音声入力） ========== -->
 <div class="panel active" id="panelWrite">
     <div>
@@ -70,9 +72,9 @@ Voice diary · HTML
         <button id="stopBtn" disabled>停止</button>
     </div>
     <p id="status" class="status">ボタンを押して話し始めてください</p>
- 
+
     <textarea id="diaryArea" placeholder="ここに日記が入力されます..."></textarea>
- 
+
     <div class="row">
         <button id="saveBtn">端末に保存</button>
         <button id="driveSignInBtn">Googleドライブに接続</button>
@@ -80,7 +82,7 @@ Voice diary · HTML
     </div>
     <p id="driveStatus" class="drive-status"></p>
 </div>
- 
+
 <!-- ========== カレンダーパネル（任意の日を読み書き） ========== -->
 <div class="panel" id="panelCalendar">
     <div class="cal-header">
@@ -95,7 +97,7 @@ Voice diary · HTML
         <button id="refreshDriveBtn">ドライブから読み込む</button>
     </div>
     <p id="calStatus" class="drive-status"></p>
- 
+
     <div class="editor">
         <h3 id="editorTitle">日付を選んでください</h3>
         <div class="row">
@@ -111,37 +113,37 @@ Voice diary · HTML
         <p id="editorStatus" class="drive-status"></p>
     </div>
 </div>
- 
+
 <script>
 /* =========================================================
    設定
    ========================================================= */
 const CLIENT_ID = '601356272619-t96fpja50tpa1v0br6c1igae4uvi9ks0.apps.googleusercontent.com';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
- 
+
 /* ---------- 共通 ---------- */
 function toKey(d) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 const todayKey = toKey(new Date());
- 
+
 const diaryArea = document.getElementById('diaryArea');
 const driveStatus = document.getElementById('driveStatus');
 const calStatus = document.getElementById('calStatus');
- 
+
 // ページ読み込み時に今日の日記を復元（「今日を書く」タブ）
 const savedDiary = localStorage.getItem(`diary_${todayKey}`);
 if (savedDiary) diaryArea.value = savedDiary;
- 
+
 /* ---------- タブ切り替え ---------- */
 const tabWrite = document.getElementById('tabWrite');
 const tabCalendar = document.getElementById('tabCalendar');
 const panelWrite = document.getElementById('panelWrite');
 const panelCalendar = document.getElementById('panelCalendar');
- 
+
 tabWrite.addEventListener('click', () => switchTab('write'));
 tabCalendar.addEventListener('click', () => switchTab('calendar'));
- 
+
 function switchTab(which) {
     const isWrite = which === 'write';
     tabWrite.classList.toggle('active', isWrite);
@@ -152,16 +154,16 @@ function switchTab(which) {
     // カレンダー側で録音中のままタブを離れると気づきにくいので止めておく
     if (isWrite && window.__calRecognitionStop) window.__calRecognitionStop();
 }
- 
+
 /* =========================================================
    Googleドライブ連携（共通の保存・検索・一覧・取得関数）
    ========================================================= */
 let accessToken = null;
 let tokenClient = null;
- 
+
 const driveSignInBtn = document.getElementById('driveSignInBtn');
 const driveSaveBtn = document.getElementById('driveSaveBtn');
- 
+
 function initGoogleAuth() {
     if (typeof google === 'undefined' || !google.accounts) {
         setTimeout(initGoogleAuth, 300);
@@ -183,7 +185,7 @@ function initGoogleAuth() {
     });
 }
 initGoogleAuth();
- 
+
 driveSignInBtn.addEventListener('click', () => {
     if (!tokenClient) {
         driveStatus.textContent = 'Google認証の準備中です。少し待ってから再度お試しください。';
@@ -191,7 +193,7 @@ driveSignInBtn.addEventListener('click', () => {
     }
     tokenClient.requestAccessToken();
 });
- 
+
 async function findFileId(fileName) {
     const query = encodeURIComponent(`name='${fileName}' and trashed=false`);
     const res = await fetch(
@@ -202,11 +204,11 @@ async function findFileId(fileName) {
     const data = await res.json();
     return data.files && data.files.length > 0 ? data.files[0].id : null;
 }
- 
+
 async function saveToDrive(fileName, content) {
     const existingId = await findFileId(fileName);
     const metadata = existingId ? { name: fileName } : { name: fileName, parents: ['appDataFolder'] };
- 
+
     const boundary = 'diary_boundary_' + Date.now();
     const body =
         `--${boundary}\r\n` +
@@ -216,11 +218,11 @@ async function saveToDrive(fileName, content) {
         `Content-Type: text/plain; charset=UTF-8\r\n\r\n` +
         `${content}\r\n` +
         `--${boundary}--`;
- 
+
     const url = existingId
         ? `https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=multipart`
         : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
- 
+
     const res = await fetch(url, {
         method: existingId ? 'PATCH' : 'POST',
         headers: {
@@ -233,7 +235,7 @@ async function saveToDrive(fileName, content) {
     const data = await res.json();
     return existingId || data.id;
 }
- 
+
 async function listDriveDiaries() {
     let pageToken = null;
     const map = {};
@@ -252,7 +254,7 @@ async function listDriveDiaries() {
     } while (pageToken);
     return map;
 }
- 
+
 async function fetchDriveContent(fileId) {
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
         headers: { Authorization: `Bearer ${accessToken}` }
@@ -260,7 +262,7 @@ async function fetchDriveContent(fileId) {
     if (!res.ok) throw new Error(`本文の取得に失敗しました (${res.status})`);
     return res.text();
 }
- 
+
 // 「今日を書く」タブの保存ボタン
 driveSaveBtn.addEventListener('click', async () => {
     if (!accessToken) { driveStatus.textContent = '先にGoogleドライブに接続してください。'; return; }
@@ -278,26 +280,68 @@ driveSaveBtn.addEventListener('click', async () => {
         driveSaveBtn.disabled = false;
     }
 });
- 
+
 /* =========================================================
    カレンダー（任意の日を選んで読み書き）
    ========================================================= */
 let driveFileMap = {};              // dateKey -> fileId（ドライブ側）
 let viewYear, viewMonth;
 let selectedKey = null;
- 
+
 const calEditArea = document.getElementById('calEditArea');
 const editorTitle = document.getElementById('editorTitle');
 const editorStatus = document.getElementById('editorStatus');
 const calLocalSaveBtn = document.getElementById('calLocalSaveBtn');
 const calDriveSaveBtn = document.getElementById('calDriveSaveBtn');
- 
+
+// 日本の祝日（内閣府データ: https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html）
+// R8(2026年)・R9(2027年)分。年が増えたらここに追記してください。
+const HOLIDAYS = {
+    // 2026年（令和8年）
+    '2026-01-01': '元日',
+    '2026-01-12': '成人の日',
+    '2026-02-11': '建国記念の日',
+    '2026-02-23': '天皇誕生日',
+    '2026-03-20': '春分の日',
+    '2026-04-29': '昭和の日',
+    '2026-05-03': '憲法記念日',
+    '2026-05-04': 'みどりの日',
+    '2026-05-05': 'こどもの日',
+    '2026-05-06': '休日',
+    '2026-07-20': '海の日',
+    '2026-08-11': '山の日',
+    '2026-09-21': '敬老の日',
+    '2026-09-22': '休日',
+    '2026-09-23': '秋分の日',
+    '2026-10-12': 'スポーツの日',
+    '2026-11-03': '文化の日',
+    '2026-11-23': '勤労感謝の日',
+    // 2027年（令和9年）
+    '2027-01-01': '元日',
+    '2027-01-11': '成人の日',
+    '2027-02-11': '建国記念の日',
+    '2027-02-23': '天皇誕生日',
+    '2027-03-21': '春分の日',
+    '2027-03-22': '休日',
+    '2027-04-29': '昭和の日',
+    '2027-05-03': '憲法記念日',
+    '2027-05-04': 'みどりの日',
+    '2027-05-05': 'こどもの日',
+    '2027-07-19': '海の日',
+    '2027-08-11': '山の日',
+    '2027-09-20': '敬老の日',
+    '2027-09-23': '秋分の日',
+    '2027-10-11': 'スポーツの日',
+    '2027-11-03': '文化の日',
+    '2027-11-23': '勤労感謝の日',
+};
+
 (function initCalendarMonth() {
     const d = new Date();
     viewYear = d.getFullYear();
     viewMonth = d.getMonth();
 })();
- 
+
 (function renderDow() {
     const names = ['日', '月', '火', '水', '木', '金', '土'];
     const wrap = document.getElementById('calDow');
@@ -305,7 +349,7 @@ const calDriveSaveBtn = document.getElementById('calDriveSaveBtn');
         `<div class="cal-dow ${i === 0 ? 'sun' : ''}${i === 6 ? 'sat' : ''}">${n}</div>`
     ).join('');
 })();
- 
+
 function localDiaryKeys() {
     const keys = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -315,31 +359,44 @@ function localDiaryKeys() {
     }
     return keys;
 }
- 
+
 function hasEntry(key) {
     return localDiaryKeys().includes(key) || Object.prototype.hasOwnProperty.call(driveFileMap, key);
 }
- 
+
 function renderCalendar() {
     document.getElementById('calTitle').textContent = `${viewYear}年 ${viewMonth + 1}月`;
- 
+
     const first = new Date(viewYear, viewMonth, 1);
     const startDow = first.getDay();
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
- 
+
     const cells = [];
     for (let i = 0; i < startDow; i++) cells.push('<div class="cal-cell empty"></div>');
- 
+
     for (let day = 1; day <= daysInMonth; day++) {
-        const key = toKey(new Date(viewYear, viewMonth, day));
+        const dateObj = new Date(viewYear, viewMonth, day);
+        const key = toKey(dateObj);
+        const dow = dateObj.getDay(); // 0=日, 6=土
+        const holidayName = HOLIDAYS[key];
+
         const classes = ['cal-cell'];
         if (hasEntry(key)) classes.push('has-entry');
         if (key === todayKey) classes.push('today');
         if (key === selectedKey) classes.push('selected');
+        if (dow === 0) classes.push('sun');
+        if (dow === 6) classes.push('sat');
+        if (holidayName) classes.push('holiday'); // 祝日は日曜と同じ赤色にする
+
         const dot = hasEntry(key) ? '<div class="dot"></div>' : '';
-        cells.push(`<div class="${classes.join(' ')}" data-key="${key}"><span>${day}</span>${dot}</div>`);
+        const title = holidayName ? ` title="${holidayName}"` : '';
+
+        cells.push(
+            `<div class="${classes.join(' ')}" data-key="${key}"${title}>` +
+            `<span class="daynum">${day}</span>${dot}</div>`
+        );
     }
- 
+
     const grid = document.getElementById('calGrid');
     grid.innerHTML = cells.join('');
     // 空白セル以外は全部クリック可能（新規作成もできるように）
@@ -347,7 +404,7 @@ function renderCalendar() {
         cell.addEventListener('click', () => openEditor(cell.dataset.key));
     });
 }
- 
+
 document.getElementById('prevMonth').addEventListener('click', () => {
     viewMonth--;
     if (viewMonth < 0) { viewMonth = 11; viewYear--; }
@@ -358,15 +415,15 @@ document.getElementById('nextMonth').addEventListener('click', () => {
     if (viewMonth > 11) { viewMonth = 0; viewYear++; }
     renderCalendar();
 });
- 
+
 // 日付を選んで、書き込み可能な状態にする
 async function openEditor(key) {
     // 別の日付に切り替える前に、録音中なら止めておく
     if (window.__calRecognitionStop) window.__calRecognitionStop();
- 
+
     selectedKey = key;
     renderCalendar();
- 
+
     editorTitle.textContent = `${key} の日記`;
     calEditArea.disabled = false;
     calLocalSaveBtn.disabled = false;
@@ -375,12 +432,12 @@ async function openEditor(key) {
     document.getElementById('calStopBtn').disabled = true;
     document.getElementById('calRecStatus').textContent = '';
     editorStatus.textContent = '';
- 
+
     // まず端末内の内容を即座に表示
     const local = localStorage.getItem(`diary_${key}`);
     calEditArea.value = local || '';
     if (local) editorStatus.textContent = '端末に保存されている内容を表示しています。';
- 
+
     // ドライブ側にファイルがあれば、そちらの内容で上書き
     const fileId = driveFileMap[key];
     if (accessToken && fileId) {
@@ -396,7 +453,7 @@ async function openEditor(key) {
         editorStatus.textContent = 'まだ日記がありません。書いて保存できます。';
     }
 }
- 
+
 calLocalSaveBtn.addEventListener('click', () => {
     if (!selectedKey) return;
     localStorage.setItem(`diary_${selectedKey}`, calEditArea.value);
@@ -405,7 +462,7 @@ calLocalSaveBtn.addEventListener('click', () => {
     // 「今日を書く」タブの内容とも同期
     if (selectedKey === todayKey) diaryArea.value = calEditArea.value;
 });
- 
+
 calDriveSaveBtn.addEventListener('click', async () => {
     if (!selectedKey) return;
     if (!accessToken) { editorStatus.textContent = '先に「今日を書く」タブでGoogleドライブに接続してください。'; return; }
@@ -424,7 +481,7 @@ calDriveSaveBtn.addEventListener('click', async () => {
         calDriveSaveBtn.disabled = false;
     }
 });
- 
+
 document.getElementById('refreshDriveBtn').addEventListener('click', async () => {
     if (!accessToken) {
         calStatus.textContent = '先に「今日を書く」タブでGoogleドライブに接続してください。';
@@ -440,22 +497,22 @@ document.getElementById('refreshDriveBtn').addEventListener('click', async () =>
         calStatus.textContent = 'エラー: ' + err.message;
     }
 });
- 
+
 /* =========================================================
    音声認識（「今日を書く」「カレンダー」両方で使う共通の仕組み）
    ========================================================= */
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
- 
+
 // 1つのテキストエリア・ボタン一式に対して、音声認識を1セット作る関数
 function setupSpeechRecognition({ textareaEl, startBtn, stopBtn, statusEl }) {
     const recognition = new SpeechRecognition();
     recognition.lang = 'ja-JP';
     recognition.interimResults = true;
     recognition.continuous = true;
- 
+
     let finalTranscript = '';
     let isRecognizing = false;
- 
+
     recognition.onresult = (event) => {
         let interimTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -468,14 +525,14 @@ function setupSpeechRecognition({ textareaEl, startBtn, stopBtn, statusEl }) {
         }
         textareaEl.value = finalTranscript + interimTranscript;
     };
- 
+
     recognition.onend = () => {
         if (isRecognizing) {
             try { recognition.start(); }
             catch (e) { console.log("再起動をスキップ:", e.message); }
         }
     };
- 
+
     recognition.onerror = (event) => {
         console.error("Speech recognition error", event.error);
         if (event.error === 'not-allowed') {
@@ -485,7 +542,7 @@ function setupSpeechRecognition({ textareaEl, startBtn, stopBtn, statusEl }) {
             stopBtn.disabled = true;
         }
     };
- 
+
     startBtn.addEventListener('click', () => {
         finalTranscript = textareaEl.value;
         if (finalTranscript.length > 0 && !finalTranscript.endsWith('。') && !finalTranscript.endsWith('\n')) {
@@ -498,7 +555,7 @@ function setupSpeechRecognition({ textareaEl, startBtn, stopBtn, statusEl }) {
         statusEl.textContent = "🔴 音声認識中... 続けて話してください";
         statusEl.style.color = "red";
     });
- 
+
     stopBtn.addEventListener('click', () => {
         isRecognizing = false;
         recognition.stop();
@@ -507,7 +564,7 @@ function setupSpeechRecognition({ textareaEl, startBtn, stopBtn, statusEl }) {
         statusEl.textContent = "停止しました";
         statusEl.style.color = "#666";
     });
- 
+
     // 外から止める用（タブ切り替え・日付切り替え時に使用）
     return {
         stop() {
@@ -522,12 +579,12 @@ function setupSpeechRecognition({ textareaEl, startBtn, stopBtn, statusEl }) {
         }
     };
 }
- 
+
 if (!SpeechRecognition) {
     alert("お使いのブラウザは音声認識に対応していません。AndroidのChromeやPCのChrome/Edgeでお試しください。");
 } else {
     const saveBtn = document.getElementById('saveBtn');
- 
+
     // 「今日を書く」タブ用
     setupSpeechRecognition({
         textareaEl: diaryArea,
@@ -535,7 +592,7 @@ if (!SpeechRecognition) {
         stopBtn: document.getElementById('stopBtn'),
         statusEl: document.getElementById('status'),
     });
- 
+
     // 「カレンダー」タブ用（最初は日付未選択なのでボタンは無効化されている）
     const calStartBtn = document.getElementById('calStartBtn');
     const calStopBtn = document.getElementById('calStopBtn');
@@ -547,7 +604,7 @@ if (!SpeechRecognition) {
     });
     // openEditor などから呼べるように外に出しておく
     window.__calRecognitionStop = () => calRecognition.stop();
- 
+
     saveBtn.addEventListener('click', () => {
         localStorage.setItem(`diary_${todayKey}`, diaryArea.value);
         alert(`本日（${todayKey}）の日記を保存しました！`);
@@ -556,10 +613,3 @@ if (!SpeechRecognition) {
 </script>
 </body>
 </html>
- 
-
-
-
-
-
-説明
