@@ -49,6 +49,14 @@
         .cal-cell .holiday-mark { font-size: 0.55rem; color: #d93025; line-height: 1; margin-top: 1px; }
         .cal-cell.selected .holiday-mark { color: #ffd6d2; }
 
+        /* 検索結果 */
+        .search-result { border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; cursor: pointer; }
+        .search-result:hover { background: #f3f6fd; border-color: #1a73e8; }
+        .search-result .sr-date { font-weight: bold; color: #1a73e8; font-size: 0.9rem; margin-bottom: 4px; }
+        .search-result .sr-source { font-size: 0.75rem; color: #888; margin-left: 6px; font-weight: normal; }
+        .search-result .sr-snippet { font-size: 0.9rem; color: #333; line-height: 1.5; }
+        .search-result mark { background: #fff59d; padding: 0 2px; }
+
         .editor { margin-top: 20px; }
         .editor h3 { margin: 0 0 8px; font-size: 1rem; }
         #calEditArea { height: 180px; margin-top: 8px; }
@@ -63,6 +71,7 @@
 <div class="tabs">
     <button class="tab active" id="tabWrite">今日を書く</button>
     <button class="tab" id="tabCalendar">カレンダー</button>
+    <button class="tab" id="tabSearch">検索</button>
 </div>
 
 <!-- ========== 書くパネル（今日専用・音声入力） ========== -->
@@ -114,6 +123,17 @@
     </div>
 </div>
 
+<!-- ========== 検索パネル ========== -->
+<div class="panel" id="panelSearch">
+    <div class="row">
+        <input type="text" id="searchInput" placeholder="キーワードを入力..."
+               style="width:100%; box-sizing:border-box; padding:10px; font-size:1rem; margin-bottom:8px;">
+        <button id="searchBtn" class="primary-btn">検索</button>
+    </div>
+    <p id="searchStatus" class="drive-status"></p>
+    <div id="searchResults"></div>
+</div>
+
 <script>
 /* =========================================================
    設定
@@ -138,21 +158,29 @@ if (savedDiary) diaryArea.value = savedDiary;
 /* ---------- タブ切り替え ---------- */
 const tabWrite = document.getElementById('tabWrite');
 const tabCalendar = document.getElementById('tabCalendar');
+const tabSearch = document.getElementById('tabSearch');
 const panelWrite = document.getElementById('panelWrite');
 const panelCalendar = document.getElementById('panelCalendar');
+const panelSearch = document.getElementById('panelSearch');
 
 tabWrite.addEventListener('click', () => switchTab('write'));
 tabCalendar.addEventListener('click', () => switchTab('calendar'));
+tabSearch.addEventListener('click', () => switchTab('search'));
 
 function switchTab(which) {
-    const isWrite = which === 'write';
-    tabWrite.classList.toggle('active', isWrite);
-    tabCalendar.classList.toggle('active', !isWrite);
-    panelWrite.classList.toggle('active', isWrite);
-    panelCalendar.classList.toggle('active', !isWrite);
-    if (!isWrite) renderCalendar();
+    const map = {
+        write: [tabWrite, panelWrite],
+        calendar: [tabCalendar, panelCalendar],
+        search: [tabSearch, panelSearch],
+    };
+    Object.entries(map).forEach(([name, [tabEl, panelEl]]) => {
+        const active = name === which;
+        tabEl.classList.toggle('active', active);
+        panelEl.classList.toggle('active', active);
+    });
+    if (which === 'calendar') renderCalendar();
     // カレンダー側で録音中のままタブを離れると気づきにくいので止めておく
-    if (isWrite && window.__calRecognitionStop) window.__calRecognitionStop();
+    if (which !== 'calendar' && window.__calRecognitionStop) window.__calRecognitionStop();
 }
 
 /* =========================================================
@@ -272,6 +300,7 @@ driveSaveBtn.addEventListener('click', async () => {
         const fileName = `diary_${todayKey}.txt`;
         const fileId = await saveToDrive(fileName, diaryArea.value);
         driveFileMap[todayKey] = fileId;
+        driveContentCache[todayKey] = diaryArea.value;
         driveStatus.textContent = `Googleドライブに保存しました（${fileName}）。`;
     } catch (err) {
         console.error(err);
@@ -416,6 +445,9 @@ document.getElementById('nextMonth').addEventListener('click', () => {
     renderCalendar();
 });
 
+// 一度取得したドライブの本文をキャッシュしておく（検索で再利用するため）
+const driveContentCache = {};
+
 // 日付を選んで、書き込み可能な状態にする
 async function openEditor(key) {
     // 別の日付に切り替える前に、録音中なら止めておく
@@ -445,6 +477,7 @@ async function openEditor(key) {
         try {
             const text = await fetchDriveContent(fileId);
             calEditArea.value = text;
+            driveContentCache[key] = text;
             editorStatus.textContent = 'ドライブの内容を表示しています。';
         } catch (err) {
             editorStatus.textContent = 'ドライブの読み込みに失敗しました: ' + err.message;
@@ -452,6 +485,15 @@ async function openEditor(key) {
     } else if (!local) {
         editorStatus.textContent = 'まだ日記がありません。書いて保存できます。';
     }
+}
+
+// 検索結果などから、特定の日付にジャンプして開く
+function goToDate(key) {
+    const [y, m] = key.split('-').map(Number);
+    viewYear = y;
+    viewMonth = m - 1;
+    switchTab('calendar');
+    openEditor(key);
 }
 
 calLocalSaveBtn.addEventListener('click', () => {
@@ -472,6 +514,7 @@ calDriveSaveBtn.addEventListener('click', async () => {
         const fileName = `diary_${selectedKey}.txt`;
         const fileId = await saveToDrive(fileName, calEditArea.value);
         driveFileMap[selectedKey] = fileId;
+        driveContentCache[selectedKey] = calEditArea.value;
         editorStatus.textContent = `Googleドライブに保存しました（${fileName}）。`;
         renderCalendar();
     } catch (err) {
@@ -496,6 +539,111 @@ document.getElementById('refreshDriveBtn').addEventListener('click', async () =>
         console.error(err);
         calStatus.textContent = 'エラー: ' + err.message;
     }
+});
+
+/* =========================================================
+   検索
+   ========================================================= */
+const searchInput = document.getElementById('searchInput');
+const searchBtn = document.getElementById('searchBtn');
+const searchStatus = document.getElementById('searchStatus');
+const searchResults = document.getElementById('searchResults');
+
+function escapeHtml(str) {
+    return str.replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
+
+// マッチ箇所を中心に、前後を切り出してハイライトしたHTMLスニペットを作る
+function makeSnippet(content, query) {
+    const idx = content.toLowerCase().indexOf(query.toLowerCase());
+    if (idx === -1) return escapeHtml(content.slice(0, 60)) + (content.length > 60 ? '…' : '');
+
+    const start = Math.max(0, idx - 20);
+    const end = Math.min(content.length, idx + query.length + 40);
+    let snippet = content.slice(start, end);
+    const prefix = start > 0 ? '…' : '';
+    const suffix = end < content.length ? '…' : '';
+
+    const before = escapeHtml(snippet.slice(0, idx - start));
+    const match = escapeHtml(snippet.slice(idx - start, idx - start + query.length));
+    const after = escapeHtml(snippet.slice(idx - start + query.length));
+
+    return prefix + before + `<mark>${match}</mark>` + after + suffix;
+}
+
+async function performSearch() {
+    const query = searchInput.value.trim();
+    if (!query) {
+        searchStatus.textContent = 'キーワードを入力してください。';
+        searchResults.innerHTML = '';
+        return;
+    }
+
+    searchBtn.disabled = true;
+    searchStatus.textContent = '検索中...';
+    searchResults.innerHTML = '';
+
+    try {
+        // 対象になりうる日付を全部集める（端末保存 + ドライブ一覧）
+        const localKeys = localDiaryKeys();
+        const allKeys = new Set([...localKeys, ...Object.keys(driveFileMap)]);
+
+        const matches = [];
+        for (const key of allKeys) {
+            let content = localStorage.getItem(`diary_${key}`);
+
+            // 端末にないがドライブにはある場合、内容を取りに行く（キャッシュ優先）
+            if ((!content || content.trim() === '') && driveFileMap[key]) {
+                if (driveContentCache[key] !== undefined) {
+                    content = driveContentCache[key];
+                } else if (accessToken) {
+                    searchStatus.textContent = `検索中...（${key} をドライブから取得中）`;
+                    try {
+                        content = await fetchDriveContent(driveFileMap[key]);
+                        driveContentCache[key] = content;
+                    } catch (e) {
+                        continue; // その日は諦めて次へ
+                    }
+                } else {
+                    continue; // 未接続でドライブの内容が見られない場合はスキップ
+                }
+            }
+
+            if (content && content.toLowerCase().includes(query.toLowerCase())) {
+                matches.push({ key, content });
+            }
+        }
+
+        matches.sort((a, b) => b.key.localeCompare(a.key)); // 新しい日付順
+
+        if (matches.length === 0) {
+            searchStatus.textContent = `「${query}」に一致する日記は見つかりませんでした。`;
+        } else {
+            searchStatus.textContent = `${matches.length} 件見つかりました。`;
+            searchResults.innerHTML = matches.map(({ key, content }) => `
+                <div class="search-result" data-key="${key}">
+                    <div class="sr-date">${key}</div>
+                    <div class="sr-snippet">${makeSnippet(content, query)}</div>
+                </div>
+            `).join('');
+            searchResults.querySelectorAll('.search-result').forEach(el => {
+                el.addEventListener('click', () => goToDate(el.dataset.key));
+            });
+        }
+
+        if (!accessToken && Object.keys(driveFileMap).length === 0) {
+            searchStatus.textContent += '（Googleドライブ未接続のため、端末に保存された日記のみ検索しています）';
+        }
+    } finally {
+        searchBtn.disabled = false;
+    }
+}
+
+searchBtn.addEventListener('click', performSearch);
+searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') performSearch();
 });
 
 /* =========================================================
