@@ -155,6 +155,41 @@ const calStatus = document.getElementById('calStatus');
 const savedDiary = localStorage.getItem(`diary_${todayKey}`);
 if (savedDiary) diaryArea.value = savedDiary;
 
+diaryArea.addEventListener('input', () => autoSaveLocal(todayKey, diaryArea.value));
+
+/* ---------- 自動保存（端末）----------
+   「保存」ボタンを押し忘れても、入力するたびに自動でlocalStorageに保存する。
+   入力のたびに毎回書き込むと重いので、少し間を置いてから保存（デバウンス）。 */
+function debounce(fn, delay) {
+    let timer;
+    return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), delay);
+    };
+}
+
+const autoSaveLocal = debounce((key, value) => {
+    if (!key) return;
+    localStorage.setItem(`diary_${key}`, value);
+}, 600);
+
+// カレンダー編集エリア用: 保存したあと、青印を反映するためカレンダーも再描画する
+const autoSaveCalendarLocal = debounce((key, value) => {
+    if (!key) return;
+    localStorage.setItem(`diary_${key}`, value);
+    renderCalendar();
+}, 600);
+
+// タブを閉じる・リロードする直前にも、念のため今の内容を確実に保存しておく
+function flushLocalSave() {
+    localStorage.setItem(`diary_${todayKey}`, diaryArea.value);
+    if (typeof selectedKey !== 'undefined' && selectedKey) {
+        localStorage.setItem(`diary_${selectedKey}`, calEditArea.value);
+    }
+}
+window.addEventListener('beforeunload', flushLocalSave);
+window.addEventListener('pagehide', flushLocalSave);
+
 /* ---------- タブ切り替え ---------- */
 const tabWrite = document.getElementById('tabWrite');
 const tabCalendar = document.getElementById('tabCalendar');
@@ -322,6 +357,11 @@ const editorTitle = document.getElementById('editorTitle');
 const editorStatus = document.getElementById('editorStatus');
 const calLocalSaveBtn = document.getElementById('calLocalSaveBtn');
 const calDriveSaveBtn = document.getElementById('calDriveSaveBtn');
+
+calEditArea.addEventListener('input', () => {
+    if (!selectedKey) return;
+    autoSaveCalendarLocal(selectedKey, calEditArea.value);
+});
 
 // 日本の祝日（内閣府データ: https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html）
 // R8(2026年)・R9(2027年)分。年が増えたらここに追記してください。
